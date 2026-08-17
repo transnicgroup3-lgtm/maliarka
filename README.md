@@ -24,8 +24,10 @@ Acum încarci toate fișierele din acest proiect în repo, păstrând exact stru
 5. Copiază tot conținutul fișierului `schema.sql` din acest proiect, lipește-l acolo și apasă **Run**.
    Asta îți creează cele 3 tabele: `materiale`, `masini`, `masini_materiale`.
 6. Mergi la **Project Settings → API**. De acolo ai nevoie de două valori:
-   - **Project URL** → îl pui în `NEXT_PUBLIC_SUPABASE_URL`
-   - **anon public key** → îl pui în `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - **Project URL** → îl pui în `NEXT_PUBLIC_SUPABASE_URL` (doar link-ul, fără `/rest/v1/` la final)
+   - **anon / publishable key** (`sb_publishable_...`) → îl pui în `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+   Nu ai nevoie de `sb_secret_...` — nu-l adăuga nicăieri, e o cheie de admin care nu trebuie expusă.
 
 ## Pas 3 — Deploy pe Vercel
 
@@ -38,18 +40,18 @@ Acum încarci toate fișierele din acest proiect în repo, păstrând exact stru
    |---|---|
    | `NEXT_PUBLIC_SUPABASE_URL` | (din Supabase, Pas 2.6) |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | (din Supabase, Pas 2.6) |
-   | `SITE_PASSWORD` | parola pe care o vor folosi angajații ca să intre pe site |
-   | `AUTH_SECRET` | orice șir lung random, ex: `x7Jk29fPqzL8mR4tYw1n` — folosit doar intern, nu-l spui nimănui |
 
 5. Apasă **Deploy**. În ~1 minut ai un link gen `maliarca.vercel.app`.
 
+Site-ul nu are parolă de acces — se deschide direct la Dashboard pentru oricine are link-ul.
+
 ## Pas 4 — Testezi
 
-1. Deschide link-ul Vercel → ar trebui să te redirecționeze la `/login`.
-2. Introduci parola pusă la `SITE_PASSWORD` → intri pe dashboard.
-3. Mergi la **Materiale** → adaugă câteva materiale de test.
-4. Mergi la **Mașini** → adaugă o lucrare de test și selectează materialele folosite — vezi cum
+1. Deschide link-ul Vercel → intri direct pe **Dashboard**.
+2. Mergi la **Materiale** → adaugă câteva materiale de test.
+3. Mergi la **Mașini** → adaugă o lucrare de test și selectează materialele folosite — vezi cum
    se scade automat cantitatea din stoc.
+4. Revino la **Dashboard** — vezi statisticile și alerta de stoc redus, dacă e cazul.
 
 ## Pentru actualizări ulterioare
 
@@ -59,9 +61,11 @@ automat în ~1 minut.
 
 ## Ce am construit
 
+- **Dashboard** (`/`) — statistici (materiale în stoc, stoc redus, lucrări săptămâna asta,
+  valoare stoc), alertă când un material scade sub pragul minim, și ultimele lucrări.
 - **`/materiale`** — stoc: nume, cod/culoare, cantitate, unitate, preț, furnizor, prag minim
-  (afișează "stoc redus" cu roșu când cantitatea scade sub prag).
+  (marchează "stoc redus" când cantitatea scade sub prag).
 - **`/masini`** — lucrări: număr înmatriculare, dată, descrierea lucrării, și lista de materiale
   folosite (cu cantitate) — la salvare, cantitatea se scade automat din stocul de materiale.
-- **Acces cu parolă comună** — fără conturi individuale, o singură parolă pentru toată echipa,
-  cu sesiune păstrată 30 de zile într-un cookie.
+- Navigare cu tab-uri sus (Dashboard / Materiale / Mașini), fără parolă de acces — la fel ca
+  la aplicația de flotă.

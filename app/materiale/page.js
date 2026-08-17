@@ -256,9 +256,9 @@ export default function MaterialePage() {
                     )}
                     {m.cod_culoare || "—"}
                   </td>
-                  <td className={isLow(m) ? "low-stock" : ""}>
-                    {m.cantitate} {m.unitate}
-                    {isLow(m) && " (stoc redus)"}
+                  <td>
+                    {m.cantitate} {m.unitate}{" "}
+                    {isLow(m) && <span className="pill danger">stoc redus</span>}
                   </td>
                   <td>{m.pret != null ? `${m.pret} MDL` : "—"}</td>
                   <td>{m.furnizor || "—"}</td>
