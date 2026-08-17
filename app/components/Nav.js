@@ -25,7 +25,6 @@ export default function Nav() {
         <Link href="/masini" className={pathname === "/masini" ? "active" : ""}>
           Mașini
         </Link>
-        <button onClick={logout}>Ieșire</button>
       </div>
     </div>
   );
