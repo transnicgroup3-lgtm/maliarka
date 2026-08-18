@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "../../lib/supabaseClient";
+import { loadFleetData, saveFleetData } from "../../lib/supabaseClient";
 import Nav from "../components/Nav";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 const UNITATI = ["l", "kg", "buc", "ml", "g"];
 
@@ -16,33 +17,50 @@ const EMPTY_FORM = {
   furnizor: "",
 };
 
+function newId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : "id-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+}
+
 export default function MaterialePage() {
-  const [materiale, setMateriale] = useState([]);
+  const [fleet, setFleet] = useState(null); // { materiale, masini }
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   useEffect(() => {
-    loadMateriale();
+    refresh();
   }, []);
 
-  async function loadMateriale() {
+  async function refresh() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("materiale")
-      .select("*")
-      .order("nume", { ascending: true });
-
-    if (error) {
-      setError("Nu am putut încărca materialele: " + error.message);
-    } else {
-      setMateriale(data);
+    try {
+      const data = await loadFleetData();
+      setFleet(data);
       setError("");
+    } catch (e) {
+      setError("Nu am putut încărca materialele: " + e.message);
     }
     setLoading(false);
+  }
+
+  // scrie noul obiect fleet in Supabase si actualizeaza starea locala
+  async function persist(nextFleet) {
+    setSaving(true);
+    try {
+      await saveFleetData(nextFleet);
+      setFleet(nextFleet);
+      setError("");
+    } catch (e) {
+      setError("Eroare la salvare: " + e.message);
+    }
+    setSaving(false);
   }
 
   function openNewForm() {
@@ -84,41 +102,33 @@ export default function MaterialePage() {
       cantitate: form.cantitate === "" ? 0 : Number(form.cantitate),
       unitate: form.unitate,
       prag_minim: form.prag_minim === "" ? null : Number(form.prag_minim),
+      // pret = pretul TOTAL pentru toata cantitatea (nu per unitate)
       pret: form.pret === "" ? null : Number(form.pret),
       furnizor: form.furnizor.trim() || null,
     };
 
-    let res;
+    const materiale = fleet.materiale || [];
+    let nextMateriale;
     if (editingId) {
-      res = await supabase.from("materiale").update(payload).eq("id", editingId);
+      nextMateriale = materiale.map((m) => (m.id === editingId ? { ...m, ...payload } : m));
     } else {
-      res = await supabase.from("materiale").insert(payload);
+      nextMateriale = [...materiale, { id: newId(), ...payload }];
     }
 
-    if (res.error) {
-      setError("Eroare la salvare: " + res.error.message);
-      return;
-    }
-
-    setError("");
+    await persist({ ...fleet, materiale: nextMateriale });
     closeForm();
-    loadMateriale();
   }
 
   async function handleDelete(id) {
-    if (!confirm("Ștergi acest material din stoc?")) return;
-    const { error } = await supabase.from("materiale").delete().eq("id", id);
-    if (error) {
-      setError("Nu am putut șterge: " + error.message);
-      return;
-    }
-    loadMateriale();
+    const nextMateriale = (fleet.materiale || []).filter((m) => m.id !== id);
+    await persist({ ...fleet, materiale: nextMateriale });
   }
 
   function isLow(m) {
-    return m.prag_minim !== null && m.prag_minim !== undefined && Number(m.cantitate) <= Number(m.prag_minim);
+    return m.prag_minim !== null && m.prag_minim !== undefined && m.prag_minim !== "" && Number(m.cantitate) <= Number(m.prag_minim);
   }
 
+  const materiale = fleet?.materiale || [];
   const filtered = materiale.filter((m) => {
     const q = search.toLowerCase();
     return (
@@ -201,12 +211,13 @@ export default function MaterialePage() {
                 />
               </div>
               <div className="field">
-                <label>Preț (per unitate)</label>
+                <label>Preț total (pentru toată cantitatea)</label>
                 <input
                   type="number"
                   step="0.01"
                   value={form.pret}
                   onChange={(e) => setForm({ ...form, pret: e.target.value })}
+                  placeholder="ex: 70 pentru toate cele 10 bucăți"
                 />
               </div>
               <div className="field">
@@ -218,8 +229,8 @@ export default function MaterialePage() {
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-              <button className="btn" type="submit">
-                {editingId ? "Salvează modificările" : "Adaugă material"}
+              <button className="btn" type="submit" disabled={saving}>
+                {saving ? "Se salvează..." : editingId ? "Salvează modificările" : "Adaugă material"}
               </button>
               <button className="btn secondary" type="button" onClick={closeForm}>
                 Anulează
@@ -241,7 +252,7 @@ export default function MaterialePage() {
                 <th>Material</th>
                 <th>Cod / culoare</th>
                 <th>Cantitate</th>
-                <th>Preț</th>
+                <th>Preț total</th>
                 <th>Furnizor</th>
                 <th></th>
               </tr>
@@ -267,7 +278,7 @@ export default function MaterialePage() {
                       <button className="btn secondary small" onClick={() => openEditForm(m)}>
                         Editează
                       </button>
-                      <button className="btn danger" onClick={() => handleDelete(m.id)}>
+                      <button className="btn danger" onClick={() => setConfirmDeleteId(m.id)}>
                         Șterge
                       </button>
                     </div>
@@ -278,6 +289,17 @@ export default function MaterialePage() {
           </table>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="Ștergi materialul?"
+        message="Această acțiune este permanentă și nu poate fi anulată."
+        onCancel={() => setConfirmDeleteId(null)}
+        onConfirm={() => {
+          handleDelete(confirmDeleteId);
+          setConfirmDeleteId(null);
+        }}
+      />
     </div>
   );
 }

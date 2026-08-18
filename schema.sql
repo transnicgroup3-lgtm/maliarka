@@ -1,54 +1,20 @@
 -- Ruleaza acest fisier in Supabase: Project -> SQL Editor -> New query -> Run
+-- O singura tabela, un singur rand ("main"), toate datele intr-o coloana JSONB.
+-- Nu mai ai nevoie de migrari SQL pe viitor -- orice camp nou se adauga direct in page.js.
 
-create extension if not exists "pgcrypto";
-
--- Tabelul cu stocul de materiale pentru vopsire
-create table if not exists materiale (
-  id uuid primary key default gen_random_uuid(),
-  nume text not null,
-  cod_culoare text,
-  cantitate numeric not null default 0,
-  unitate text not null default 'l',
-  prag_minim numeric,
-  pret numeric,
-  furnizor text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+create table if not exists fleet_data (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz default now()
 );
 
--- Tabelul cu masinile / lucrarile de vopsire
-create table if not exists masini (
-  id uuid primary key default gen_random_uuid(),
-  numar_inmatriculare text not null,
-  data date not null default current_date,
-  lucrare text,
-  created_at timestamptz not null default now()
-);
+insert into fleet_data (id, data)
+values ('main', '{"materiale":[],"masini":[]}'::jsonb)
+on conflict (id) do nothing;
 
--- Tabel de legatura: ce materiale s-au folosit la fiecare lucrare
-create table if not exists masini_materiale (
-  id uuid primary key default gen_random_uuid(),
-  masina_id uuid not null references masini(id) on delete cascade,
-  material_id uuid references materiale(id) on delete set null,
-  cantitate_folosita numeric not null,
-  created_at timestamptz not null default now()
-);
+-- Securitate: RLS activat, dar cu politica deschisa (aplicatia nu foloseste
+-- autentificare Supabase, e protejata la nivel de site daca vrei sa adaugi asta ulterior).
+alter table fleet_data enable row level security;
 
--- Index-uri utile
-create index if not exists idx_masini_materiale_masina on masini_materiale(masina_id);
-create index if not exists idx_masini_materiale_material on masini_materiale(material_id);
-
--- Securitate: activam RLS, dar dam voie la tot (aplicatia e protejata prin parola comuna la nivel de site,
--- nu prin autentificare Supabase, deci folosim cheia "anon" cu politici deschise).
-alter table materiale enable row level security;
-alter table masini enable row level security;
-alter table masini_materiale enable row level security;
-
-create policy "allow all on materiale" on materiale
-  for all using (true) with check (true);
-
-create policy "allow all on masini" on masini
-  for all using (true) with check (true);
-
-create policy "allow all on masini_materiale" on masini_materiale
+create policy "allow all on fleet_data" on fleet_data
   for all using (true) with check (true);

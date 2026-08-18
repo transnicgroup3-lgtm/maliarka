@@ -1,61 +1,103 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "../../lib/supabaseClient";
+import { loadFleetData, saveFleetData } from "../../lib/supabaseClient";
 import Nav from "../components/Nav";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 const EMPTY_FORM = {
   numar_inmatriculare: "",
+  model: "",
   data: new Date().toISOString().slice(0, 10),
   lucrare: "",
 };
 
+function newId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : "id-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+}
+
+function PencilIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
+// suma costurilor materialelor folosite la o lucrare
+function jobTotal(m) {
+  return (m.materiale_folosite || []).reduce((sum, r) => sum + (Number(r.cost) || 0), 0);
+}
+
 export default function MasiniPage() {
-  const [masini, setMasini] = useState([]);
-  const [materiale, setMateriale] = useState([]);
+  const [fleet, setFleet] = useState(null); // { materiale, masini }
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [materialeFolosite, setMaterialeFolosite] = useState([]); // [{material_id, cantitate}]
   const [error, setError] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   useEffect(() => {
-    loadAll();
+    refresh();
   }, []);
 
-  async function loadAll() {
+  async function refresh() {
     setLoading(true);
-    const [masiniRes, materialeRes] = await Promise.all([
-      supabase
-        .from("masini")
-        .select("*, masini_materiale(id, cantitate_folosita, materiale(id, nume, unitate))")
-        .order("data", { ascending: false }),
-      supabase.from("materiale").select("id, nume, unitate, cantitate").order("nume"),
-    ]);
-
-    if (masiniRes.error) {
-      setError("Nu am putut încărca lucrările: " + masiniRes.error.message);
-    } else {
-      setMasini(masiniRes.data);
+    try {
+      const data = await loadFleetData();
+      setFleet(data);
+      setError("");
+    } catch (e) {
+      setError("Nu am putut încărca lucrările: " + e.message);
     }
-
-    if (materialeRes.error) {
-      setError("Nu am putut încărca materialele: " + materialeRes.error.message);
-    } else {
-      setMateriale(materialeRes.data);
-    }
-
     setLoading(false);
   }
 
-  function openForm() {
+  async function persist(nextFleet) {
+    setSaving(true);
+    try {
+      await saveFleetData(nextFleet);
+      setFleet(nextFleet);
+      setError("");
+    } catch (e) {
+      setError("Eroare la salvare: " + e.message);
+    }
+    setSaving(false);
+  }
+
+  function openNewForm() {
     setForm(EMPTY_FORM);
+    setEditingId(null);
     setMaterialeFolosite([]);
+    setShowForm(true);
+  }
+
+  function openEditForm(m) {
+    setForm({
+      numar_inmatriculare: m.numar_inmatriculare || "",
+      model: m.model || "",
+      data: m.data,
+      lucrare: m.lucrare || "",
+    });
+    setMaterialeFolosite(
+      (m.materiale_folosite || []).map((r) => ({
+        material_id: r.material_id || "",
+        cantitate: r.cantitate ?? "",
+      }))
+    );
+    setEditingId(m.id);
     setShowForm(true);
   }
 
   function closeForm() {
     setShowForm(false);
+    setEditingId(null);
     setForm(EMPTY_FORM);
     setMaterialeFolosite([]);
   }
@@ -74,6 +116,44 @@ export default function MasiniPage() {
     setMaterialeFolosite(materialeFolosite.filter((_, i) => i !== index));
   }
 
+  // aduna inapoi in stoc cantitatea consumata de un set de randuri (folosit la editare/stergere lucrare)
+  function restoreStock(materiale, rows) {
+    let next = materiale;
+    for (const row of rows) {
+      if (!row.material_id) continue;
+      next = next.map((mat) =>
+        mat.id === row.material_id
+          ? { ...mat, cantitate: Number(mat.cantitate) + Number(row.cantitate) }
+          : mat
+      );
+    }
+    return next;
+  }
+
+  // scade din stoc si calculeaza costul (pe baza pretului TOTAL / cantitatea TOTALA a materialului)
+  function consumeStock(materiale, rows) {
+    let next = materiale;
+    const rowsWithCost = [];
+
+    for (const row of rows) {
+      const cantitateFolosita = Number(row.cantitate);
+      const mat = next.find((m) => m.id === row.material_id);
+
+      let cost = null;
+      if (mat) {
+        const pretUnitar = Number(mat.cantitate) > 0 && mat.pret != null ? Number(mat.pret) / Number(mat.cantitate) : 0;
+        cost = Math.round(pretUnitar * cantitateFolosita * 100) / 100;
+        next = next.map((m) =>
+          m.id === row.material_id ? { ...m, cantitate: Number(m.cantitate) - cantitateFolosita } : m
+        );
+      }
+
+      rowsWithCost.push({ material_id: row.material_id, cantitate: cantitateFolosita, cost });
+    }
+
+    return { materiale: next, rows: rowsWithCost };
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (!form.numar_inmatriculare.trim()) {
@@ -83,59 +163,49 @@ export default function MasiniPage() {
 
     const rows = materialeFolosite.filter((r) => r.material_id && r.cantitate !== "");
 
-    // 1. cream lucrarea
-    const { data: masinaData, error: masinaErr } = await supabase
-      .from("masini")
-      .insert({
-        numar_inmatriculare: form.numar_inmatriculare.trim().toUpperCase(),
-        data: form.data,
-        lucrare: form.lucrare.trim() || null,
-      })
-      .select()
-      .single();
+    let materiale = fleet.materiale || [];
+    let masini = fleet.masini || [];
 
-    if (masinaErr) {
-      setError("Eroare la salvarea lucrării: " + masinaErr.message);
-      return;
+    // 1. daca editam, restauram stocul consumat de versiunea veche a lucrarii
+    if (editingId) {
+      const oldJob = masini.find((m) => m.id === editingId);
+      materiale = restoreStock(materiale, oldJob?.materiale_folosite || []);
     }
 
-    // 2. legam materialele folosite si scadem din stoc
-    for (const row of rows) {
-      const cantitate = Number(row.cantitate);
+    // 2. scadem stocul pentru randurile noi si calculam costul
+    const { materiale: materialeDupaConsum, rows: rowsWithCost } = consumeStock(materiale, rows);
+    materiale = materialeDupaConsum;
 
-      const { error: linkErr } = await supabase.from("masini_materiale").insert({
-        masina_id: masinaData.id,
-        material_id: row.material_id,
-        cantitate_folosita: cantitate,
-      });
-      if (linkErr) {
-        setError("Eroare la salvarea materialelor folosite: " + linkErr.message);
-        continue;
-      }
+    const jobPayload = {
+      numar_inmatriculare: form.numar_inmatriculare.trim().toUpperCase(),
+      model: form.model.trim() || null,
+      data: form.data,
+      lucrare: form.lucrare.trim() || null,
+      materiale_folosite: rowsWithCost,
+    };
 
-      const material = materiale.find((m) => m.id === row.material_id);
-      if (material) {
-        const cantitateNoua = Number(material.cantitate) - cantitate;
-        await supabase
-          .from("materiale")
-          .update({ cantitate: cantitateNoua })
-          .eq("id", row.material_id);
-      }
+    if (editingId) {
+      masini = masini.map((m) => (m.id === editingId ? { ...m, ...jobPayload } : m));
+    } else {
+      masini = [...masini, { id: newId(), ...jobPayload }];
     }
 
-    setError("");
+    await persist({ ...fleet, materiale, masini });
     closeForm();
-    loadAll();
   }
 
   async function handleDelete(id) {
-    if (!confirm("Ștergi această lucrare? (materialele scăzute din stoc nu se returnează automat)")) return;
-    const { error } = await supabase.from("masini").delete().eq("id", id);
-    if (error) {
-      setError("Nu am putut șterge: " + error.message);
-      return;
-    }
-    loadAll();
+    const job = (fleet.masini || []).find((m) => m.id === id);
+    const materiale = restoreStock(fleet.materiale || [], job?.materiale_folosite || []);
+    const masini = (fleet.masini || []).filter((m) => m.id !== id);
+    await persist({ ...fleet, materiale, masini });
+  }
+
+  const materiale = fleet?.materiale || [];
+  const masiniList = [...(fleet?.masini || [])].sort((a, b) => new Date(b.data) - new Date(a.data));
+
+  function materialInfo(id) {
+    return materiale.find((m) => m.id === id);
   }
 
   return (
@@ -144,7 +214,7 @@ export default function MasiniPage() {
       <h1>Mașini vopsite</h1>
       <p className="subtitle">Evidența lucrărilor: pe ce mașină, ce s-a făcut și ce materiale s-au consumat.</p>
 
-      <button className="btn" onClick={openForm} style={{ marginBottom: 16 }}>
+      <button className="btn" onClick={openNewForm} style={{ marginBottom: 16 }}>
         + Lucrare nouă
       </button>
 
@@ -160,6 +230,14 @@ export default function MasiniPage() {
                   value={form.numar_inmatriculare}
                   onChange={(e) => setForm({ ...form, numar_inmatriculare: e.target.value })}
                   placeholder="ex: C AA 123"
+                />
+              </div>
+              <div className="field">
+                <label>Model mașină</label>
+                <input
+                  value={form.model}
+                  onChange={(e) => setForm({ ...form, model: e.target.value })}
+                  placeholder="ex: Toyota Prius"
                 />
               </div>
               <div className="field">
@@ -220,9 +298,15 @@ export default function MasiniPage() {
               + Adaugă material
             </button>
 
+            {editingId && (
+              <p className="subtitle" style={{ marginTop: 12, marginBottom: 0 }}>
+                La salvare, stocul se recalculează automat (se anulează consumul vechi și se aplică cel nou).
+              </p>
+            )}
+
             <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
-              <button className="btn" type="submit">
-                Salvează lucrarea
+              <button className="btn" type="submit" disabled={saving}>
+                {saving ? "Se salvează..." : editingId ? "Salvează modificările" : "Salvează lucrarea"}
               </button>
               <button className="btn secondary" type="button" onClick={closeForm}>
                 Anulează
@@ -234,35 +318,60 @@ export default function MasiniPage() {
 
       {loading ? (
         <div className="empty">Se încarcă...</div>
-      ) : masini.length === 0 ? (
+      ) : masiniList.length === 0 ? (
         <div className="card empty">Nicio lucrare înregistrată încă.</div>
       ) : (
-        masini.map((m) => (
+        masiniList.map((m) => (
           <div className="job-card" key={m.id}>
             <div className="job-top">
-              <span className="plate">{m.numar_inmatriculare}</span>
+              <span className="plate">
+                {m.numar_inmatriculare}
+                {m.model && <span style={{ color: "var(--text-muted)", fontWeight: 500 }}> · {m.model}</span>}
+              </span>
               <span className="date">{new Date(m.data).toLocaleDateString("ro-RO")}</span>
             </div>
             {m.lucrare && <div className="lucrare">{m.lucrare}</div>}
             <div>
-              {m.masini_materiale?.length > 0 ? (
-                m.masini_materiale.map((mm) => (
-                  <span className="material-pill" key={mm.id}>
-                    {mm.materiale?.nume} — {mm.cantitate_folosita} {mm.materiale?.unitate}
-                  </span>
-                ))
+              {m.materiale_folosite?.length > 0 ? (
+                m.materiale_folosite.map((r, i) => {
+                  const mat = materialInfo(r.material_id);
+                  return (
+                    <span className="material-pill" key={i}>
+                      {mat?.nume || "material șters"} — {r.cantitate} {mat?.unitate}
+                    </span>
+                  );
+                })
               ) : (
                 <span className="tag">fără materiale înregistrate</span>
               )}
             </div>
-            <div style={{ marginTop: 10 }}>
-              <button className="btn danger" onClick={() => handleDelete(m.id)}>
+            {jobTotal(m) > 0 && (
+              <div style={{ marginTop: 10, fontSize: 14 }}>
+                <strong>Total: {jobTotal(m).toFixed(2)} MDL</strong>
+              </div>
+            )}
+            <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+              <button className="btn secondary small" onClick={() => openEditForm(m)}>
+                <PencilIcon /> Editează
+              </button>
+              <button className="btn danger" onClick={() => setConfirmDeleteId(m.id)}>
                 Șterge lucrarea
               </button>
             </div>
           </div>
         ))
       )}
+
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="Ștergi lucrarea?"
+        message="Stocul consumat de această lucrare va fi returnat automat în materiale. Acțiunea este permanentă."
+        onCancel={() => setConfirmDeleteId(null)}
+        onConfirm={() => {
+          handleDelete(confirmDeleteId);
+          setConfirmDeleteId(null);
+        }}
+      />
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { supabase } from "../lib/supabaseClient";
+import { loadFleetData } from "../lib/supabaseClient";
 import Nav from "./components/Nav";
 
 function IconBox() {
@@ -46,36 +46,35 @@ function IconCoin() {
   );
 }
 
+// suma costurilor materialelor folosite la o lucrare
+function jobTotal(m) {
+  return (m.materiale_folosite || []).reduce((sum, r) => sum + (Number(r.cost) || 0), 0);
+}
+
 export default function DashboardPage() {
   const [materiale, setMateriale] = useState([]);
   const [masini, setMasini] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    loadAll();
+    (async () => {
+      try {
+        const fleet = await loadFleetData();
+        setMateriale(fleet.materiale || []);
+        setMasini(fleet.masini || []);
+      } catch (e) {
+        setError("Nu am putut încărca datele: " + e.message);
+      }
+      setLoading(false);
+    })();
   }, []);
-
-  async function loadAll() {
-    setLoading(true);
-    const [materialeRes, masiniRes] = await Promise.all([
-      supabase.from("materiale").select("*"),
-      supabase
-        .from("masini")
-        .select("*, masini_materiale(id, cantitate_folosita, materiale(nume, unitate))")
-        .order("data", { ascending: false })
-        .limit(6),
-    ]);
-
-    setMateriale(materialeRes.data || []);
-    setMasini(masiniRes.data || []);
-    setLoading(false);
-  }
 
   const totalMateriale = materiale.length;
   const stocRedus = materiale.filter(
-    (m) => m.prag_minim !== null && m.prag_minim !== undefined && Number(m.cantitate) <= Number(m.prag_minim)
+    (m) => m.prag_minim !== null && m.prag_minim !== undefined && m.prag_minim !== "" && Number(m.cantitate) <= Number(m.prag_minim)
   );
-  const valoareStoc = materiale.reduce((sum, m) => sum + (Number(m.cantitate) || 0) * (Number(m.pret) || 0), 0);
+  const valoareStoc = materiale.reduce((sum, m) => sum + (Number(m.pret) || 0), 0);
 
   const azi = new Date();
   const inceputSaptamana = new Date(azi);
@@ -83,11 +82,21 @@ export default function DashboardPage() {
   inceputSaptamana.setHours(0, 0, 0, 0);
   const lucrariSaptamanaAsta = masini.filter((m) => new Date(m.data) >= inceputSaptamana).length;
 
+  const ultimeleLucrari = [...masini]
+    .sort((a, b) => new Date(b.data) - new Date(a.data))
+    .slice(0, 6);
+
+  function numeMaterial(id) {
+    return materiale.find((m) => m.id === id)?.nume;
+  }
+
   return (
     <div className="shell">
       <Nav />
       <h1>Dashboard</h1>
       <p className="subtitle">Privire de ansamblu asupra stocului și lucrărilor de vopsire.</p>
+
+      {error && <div className="error-msg">{error}</div>}
 
       <div className="grid-4">
         <div className="stat-card">
@@ -153,7 +162,7 @@ export default function DashboardPage() {
       <div className="card">
         {loading ? (
           <div className="empty">Se încarcă...</div>
-        ) : masini.length === 0 ? (
+        ) : ultimeleLucrari.length === 0 ? (
           <div className="empty">Nicio lucrare înregistrată încă.</div>
         ) : (
           <table>
@@ -163,19 +172,24 @@ export default function DashboardPage() {
                 <th>Data</th>
                 <th>Lucrare</th>
                 <th>Materiale</th>
+                <th>Total</th>
               </tr>
             </thead>
             <tbody>
-              {masini.map((m) => (
+              {ultimeleLucrari.map((m) => (
                 <tr key={m.id}>
-                  <td style={{ fontWeight: 700 }}>{m.numar_inmatriculare}</td>
+                  <td style={{ fontWeight: 700 }}>
+                    {m.numar_inmatriculare}
+                    {m.model && <span style={{ color: "var(--text-muted)", fontWeight: 500 }}> · {m.model}</span>}
+                  </td>
                   <td>{new Date(m.data).toLocaleDateString("ro-RO")}</td>
                   <td>{m.lucrare || "—"}</td>
                   <td>
-                    {m.masini_materiale?.length > 0
-                      ? m.masini_materiale.map((mm) => mm.materiale?.nume).join(", ")
+                    {m.materiale_folosite?.length > 0
+                      ? m.materiale_folosite.map((r) => numeMaterial(r.material_id)).filter(Boolean).join(", ")
                       : "—"}
                   </td>
+                  <td>{jobTotal(m) > 0 ? `${jobTotal(m).toFixed(2)} MDL` : "—"}</td>
                 </tr>
               ))}
             </tbody>
