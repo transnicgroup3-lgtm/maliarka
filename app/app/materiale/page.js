@@ -208,7 +208,6 @@ export default function MaterialePage() {
                   step="0.01"
                   value={form.pret}
                   onChange={(e) => setForm({ ...form, pret: e.target.value })}
-                  placeholder="ex: 70 pentru toate cele 10 bucăți"
                 />
               </div>
               <div className="field">
