@@ -5,7 +5,7 @@ import { loadFleetData, saveFleetData } from "../../lib/supabaseClient";
 import Nav from "../components/Nav";
 import ConfirmDialog from "../components/ConfirmDialog";
 
-const UNITATI = ["l", "kg", "buc", "ml", "g"];
+const UNITATI = ["l", "kg", "buc", "ml", "g", "m"];
 
 const EMPTY_FORM = {
   nume: "",
