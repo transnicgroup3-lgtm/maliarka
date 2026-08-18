@@ -46,6 +46,16 @@ function IconCoin() {
   );
 }
 
+function IconDownload() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="15" height="15">
+      <path d="M12 3v12" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 21h14" />
+    </svg>
+  );
+}
+
 // suma costurilor materialelor folosite la o lucrare
 function jobTotal(m) {
   return (m.materiale_folosite || []).reduce((sum, r) => sum + (Number(r.cost) || 0), 0);
@@ -93,8 +103,20 @@ export default function DashboardPage() {
   return (
     <div className="shell">
       <Nav />
-      <h1>Dashboard</h1>
-      <p className="subtitle">Privire de ansamblu asupra stocului și lucrărilor de vopsire.</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <h1>Dashboard</h1>
+          <p className="subtitle">Privire de ansamblu asupra stocului și lucrărilor de vopsire.</p>
+        </div>
+        <a
+          href="/Formular_Maliarka.pdf"
+          download
+          className="btn secondary"
+          style={{ flexShrink: 0 }}
+        >
+          <IconDownload /> Formular PDF
+        </a>
+      </div>
 
       {error && <div className="error-msg">{error}</div>}
 

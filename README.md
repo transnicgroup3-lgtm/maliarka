@@ -71,3 +71,8 @@ nevoie doar de modificări în `page.js` (nu mai ai nevoie de SQL Editor).
 - Navigare cu tab-uri sus (Dashboard / Materiale / Mașini), fără parolă de acces.
 - **Model de date simplu**: un singur tabel `fleet_data`, o coloană JSON — fără migrări SQL
   pe viitor, tot codul de business trăiește în `page.js`.
+- **Formular PDF de printat** — pe Dashboard, sus în dreapta, butonul "Formular PDF" descarcă
+  un formular gol (`public/Formular_Maliarka.pdf`) pe care executantul îl printează și îl
+  completează manual, de mână, pe hârtie. Nu e legat de baza de date — e mereu același
+  document fix. Dacă vrei să schimbi conținutul formularului, înlocuiești fișierul
+  `public/Formular_Maliarka.pdf` cu unul nou (păstrează exact acest nume de fișier).
